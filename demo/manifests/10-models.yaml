@@ -1,0 +1,77 @@
+# Two "model server" Deployments, 1 fake GPU per replica.
+#
+# The only Kueue-specific line is the pod-template label:
+#     kueue.x-k8s.io/queue-name: model-<x>-lq
+# Every replica the HPA creates inherits it and becomes its own Kueue Workload.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-a
+  namespace: llm-d-demo
+  labels:
+    llm-d.ai/model: model-a
+spec:
+  # deliberately no `replicas:` — the HPA owns it, so re-applying this file never
+  # clobbers the current scale
+  strategy:
+    rollingUpdate:
+      maxSurge: 0          # at full quota a surge pod would gate and stall the rollout
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: model-a
+  template:
+    metadata:
+      labels:
+        app: model-a
+        llm-d.ai/model: model-a
+        kueue.x-k8s.io/queue-name: model-a-lq   # <-- opt in to Kueue
+    spec:
+      terminationGracePeriodSeconds: 0          # demo only: makes preemption instant
+      containers:
+      - name: sim
+        image: registry.k8s.io/pause:3.10
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+            nvidia.com/gpu: "1"
+          limits:
+            nvidia.com/gpu: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-b
+  namespace: llm-d-demo
+  labels:
+    llm-d.ai/model: model-b
+spec:
+  # deliberately no `replicas:` — the HPA owns it, so re-applying this file never
+  # clobbers the current scale
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: model-b
+  template:
+    metadata:
+      labels:
+        app: model-b
+        llm-d.ai/model: model-b
+        kueue.x-k8s.io/queue-name: model-b-lq
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+      - name: sim
+        image: registry.k8s.io/pause:3.10
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+            nvidia.com/gpu: "1"
+          limits:
+            nvidia.com/gpu: "1"

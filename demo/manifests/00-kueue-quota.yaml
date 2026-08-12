@@ -1,0 +1,77 @@
+# Kueue quota model for the demo.
+#
+#   8 fake GPUs on the kind node
+#   model-a floor: 4   model-b floor: 4   shared cohort: llm-d-gpu
+#
+# Either model can borrow the other's idle GPUs, and reclaim its own floor on demand.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-d-demo
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: gpu-default
+# empty flavor: the demo cluster is one homogeneous node
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: model-a-cq
+spec:
+  cohortName: llm-d-gpu
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["nvidia.com/gpu", "cpu", "memory"]
+    flavors:
+    - name: gpu-default
+      resources:
+      - name: "nvidia.com/gpu"
+        nominalQuota: 4          # guaranteed floor
+      - name: "cpu"
+        nominalQuota: 100        # generous: GPU must be the only binding constraint
+      - name: "memory"
+        nominalQuota: 200Gi
+  preemption:
+    reclaimWithinCohort: Any                        # reclaim lent GPUs when needed
+    withinClusterQueue: LowerOrNewerEqualPriority   # newest replica of a model goes first
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: model-b-cq
+spec:
+  cohortName: llm-d-gpu
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["nvidia.com/gpu", "cpu", "memory"]
+    flavors:
+    - name: gpu-default
+      resources:
+      - name: "nvidia.com/gpu"
+        nominalQuota: 4
+      - name: "cpu"
+        nominalQuota: 100
+      - name: "memory"
+        nominalQuota: 200Gi
+  preemption:
+    reclaimWithinCohort: Any
+    withinClusterQueue: LowerOrNewerEqualPriority
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: model-a-lq
+  namespace: llm-d-demo
+spec:
+  clusterQueue: model-a-cq
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: model-b-lq
+  namespace: llm-d-demo
+spec:
+  clusterQueue: model-b-cq

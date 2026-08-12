@@ -1,0 +1,94 @@
+# KEDA ScaledObjects — the only thing that decides how many replicas each model wants.
+# Nothing here mentions quota, and no controller rewrites maxReplicaCount.
+#
+# maxReplicaCount is the *physical* ceiling (8 GPUs in the cluster). KEDA/HPA are free to ask
+# for all 8; Kueue decides how many actually get GPUs.
+#
+# DEMAND DIAL: this demo drives scaling by patching minReplicaCount, e.g.
+#
+#     kubectl patch scaledobject model-a -n llm-d-demo --type=merge \
+#       -p '{"spec":{"minReplicaCount":8}}'          # ./run-demo.sh demand a 8
+#
+# so "model-a now needs 8 replicas" is one field, with no load-generator pods to fake a metric.
+# KEDA propagates it to the HPA's minReplicas and the HPA scales the Deployment immediately.
+#
+# The cron trigger below is a placeholder: KEDA requires at least one trigger, and the trigger
+# must keep serving a metric so the HPA can also scale *down* when the dial is lowered. Its
+# window is 5 minutes a year, so it never interferes. In llm-d you would delete it and use the
+# real signal instead — a prometheus trigger on EPP queue depth, as in README.hpa-epp.md:
+#
+#   triggers:
+#   - type: prometheus
+#     metadata:
+#       serverAddress: http://prometheus.monitoring.svc:9090
+#       query: sum(llm_d_epp_flow_control_queue_size{model_name="model-a"})
+#       threshold: "250"
+#       metricType: AverageValue
+#
+# Kueue behaves identically either way — it only ever sees the pods the HPA creates.
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: model-a
+  namespace: llm-d-demo
+spec:
+  scaleTargetRef:
+    name: model-a
+  minReplicaCount: 1        # <-- the demand dial
+  maxReplicaCount: 8        # physical GPU ceiling; Kueue, not KEDA, enforces the quota
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+          - type: Pods
+            value: 8
+            periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 0
+          policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 15
+  triggers:
+  - type: cron
+    metadata:
+      timezone: UTC
+      start: "0 0 1 1 *"
+      end: "5 0 1 1 *"
+      desiredReplicas: "1"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: model-b
+  namespace: llm-d-demo
+spec:
+  scaleTargetRef:
+    name: model-b
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+          - type: Pods
+            value: 8
+            periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 0
+          policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 15
+  triggers:
+  - type: cron
+    metadata:
+      timezone: UTC
+      start: "0 0 1 1 *"
+      end: "5 0 1 1 *"
+      desiredReplicas: "1"

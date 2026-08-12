@@ -1,0 +1,2 @@
+# locally fetched/built kind binary (14MB, reproducible via run-demo.sh)
+demo/.bin/
